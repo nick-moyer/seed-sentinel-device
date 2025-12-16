@@ -40,7 +40,7 @@ To build one node, you need the following components (~$10 USD total):
 | :--- | :--- | :--- | :--- |
 | **GND** | ⚫ Black | **GND** | Common Ground |
 | **VCC** | 🔴 Red | **3V3** | **Do NOT use 5V/VIN** |
-| **AOUT** | 🟡 Yellow | **GPIO 34** | Analog Input (ADC1) |
+| **AOUT** | 🟡 Yellow | **GPIO 32** | Analog Input (ADC1) |
 
 ---
 
