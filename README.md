@@ -9,7 +9,7 @@
 
 This repository contains the firmware, wiring schematics, and 3D printable enclosures for the **Seed Sentinel Node**—a low-cost, distributed soil telemetry device.
 
-It is designed to connect to the **[Seed Sentinel Hub](https://github.com/nickmoyer/seed-sentinel)** (Go Backend + AI Agent).
+It is designed to connect to the **[Seed Sentinel Hub](https://github.com/nick-moyer/seed-sentinel)** (Go Backend + AI Agent).
 
 ---
 
