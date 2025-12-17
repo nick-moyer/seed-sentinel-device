@@ -5,22 +5,24 @@
 #include "calibration.h"
 #include "led.h"
 
-void sendCalibration(const String &deviceMac, int dryValue, int wetValue, const char *serverUrl)
+void sendTelemetry(const String &deviceMac, int dryValue, int wetValue, const char *serverUrl, int SOIL_SENSOR_PIN)
 {
     setLed(HIGH); // LED on while sending
+    int soilValue = analogRead(SOIL_SENSOR_PIN);
     bool success = false;
     if (WiFi.status() == WL_CONNECTED)
     {
         HTTPClient http;
-        String url = String(serverUrl) + "/calibrate";
+        String url = String(SERVER_URL) + "/telemetry";
         http.begin(url);
         http.addHeader("Content-Type", "application/json");
-        String json = "{\"sensor_id\": \"" + deviceMac + "\", \"dry_reference\": " + String(dryValue) + ", \"wet_reference\": " + String(wetValue) + "}";
-        Serial.println("Sending Calibration...");
+        String json = "{\"sensor_id\": \"" + deviceMac + "\", \"raw_value\": " + String(soilValue) + "}";
+        Serial.print("Sending soil reading: ");
+        Serial.println(json);
         int response = http.POST(json);
         if (response > 0)
         {
-            Serial.printf("Calibration sent! Server says: %d\n", response);
+            Serial.printf("Reading sent! Server says: %d\n", response);
             success = true;
         }
         else

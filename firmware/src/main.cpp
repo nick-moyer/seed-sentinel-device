@@ -1,8 +1,10 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+
 #include "led.h"
 #include "calibration.h"
+#include "telemetry.h"
 
 // --- MACROS (Injected from secrets.ini) ---
 #ifndef WIFI_SSID
@@ -35,6 +37,10 @@ String deviceMac;
 int lastButtonState = HIGH;
 unsigned long buttonPressTime = 0;
 bool isPressing = false;
+
+// --- Soil Reading Interval ---
+unsigned long lastReadingSent = 0;
+const unsigned long readingInterval = 30000; // 30 seconds
 
 // --- Setup ---
 void setup()
@@ -132,7 +138,6 @@ void loop()
         break;
       case WAIT_SEND:
         sendCalibration(deviceMac, dryValue, wetValue, SERVER_URL);
-        flashLed(5, 100); // Rapid flash for completion
         calibState = IDLE;
         setFlashingForState(IDLE);
         Serial.println("Calibration complete!");
@@ -140,8 +145,15 @@ void loop()
       default:
         break;
       }
-      delay(500); // Debounce
     }
+    isPressing = false;
+  }
+
+  // --- Send soil reading every 30 seconds ---
+  if (calibState == IDLE && millis() - lastReadingSent > readingInterval)
+  {
+    sendTelemetry(deviceMac, dryValue, wetValue, SERVER_URL, SOIL_SENSOR_PIN);
+    lastReadingSent = millis();
   }
 
   lastButtonState = currentState;
