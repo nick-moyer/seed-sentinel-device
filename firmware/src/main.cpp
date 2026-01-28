@@ -38,6 +38,10 @@ int lastButtonState = HIGH;
 unsigned long buttonPressTime = 0;
 bool isPressing = false;
 
+// --- Debounce Variables ---
+const unsigned long debounceDelay = 50; // Debounce delay in milliseconds
+unsigned long lastDebounceTime = 0;
+
 // --- Soil Reading Interval ---
 unsigned long lastReadingSent = 0;
 const unsigned long readingInterval = 30000; // 30 seconds
@@ -66,96 +70,114 @@ void setup()
 // --- Main Loop ---
 void loop()
 {
-  int currentState = digitalRead(BUTTON_PIN);
+  unsigned long currentTime = millis();
+  int reading = digitalRead(BUTTON_PIN);
 
-  // --- Calibration Mode Logic ---
-  if (calibState == IDLE)
+  // --- 1. Debounce & Event Detection ---
+  bool buttonLongPress = false;
+  bool buttonShortPress = false;
+
+  if (reading != lastButtonState)
   {
-    setFlashingForState(IDLE);
+    lastDebounceTime = currentTime;
+  }
 
-    // Detect long press to start calibration
-    if (currentState == LOW && lastButtonState == HIGH)
+  if ((currentTime - lastDebounceTime) > debounceDelay)
+  {
+    // If state has changed (and is stable)
+    if (reading != (isPressing ? LOW : HIGH))
     {
-      buttonPressTime = millis();
-      isPressing = true;
+
+      // Update internal state
+      if (reading == LOW)
+      {
+        // PRESS START
+        isPressing = true;
+        buttonPressTime = currentTime;
+      }
+      else
+      {
+        // PRESS END (Release)
+        isPressing = false;
+        unsigned long duration = currentTime - buttonPressTime;
+
+        if (duration > 2000)
+        {
+          buttonLongPress = true;
+        }
+        else if (duration > 50)
+        { // Simple noise filter
+          buttonShortPress = true;
+        }
+      }
     }
-    else if (currentState == HIGH && lastButtonState == LOW)
-    {
-      isPressing = false;
-    }
-    if (isPressing && millis() - buttonPressTime > 2000)
+  }
+
+  // Update for next loop
+  lastButtonState = reading;
+
+  // --- 2. State Machine Logic ---
+
+  // GLOBAL: Cancel or Start Calibration (Long Press)
+  if (buttonLongPress)
+  {
+    if (calibState == IDLE)
     {
       Serial.println("Calibration started! Place sensor in AIR and press button.");
       calibState = WAIT_DRY;
       setFlashingForState(WAIT_DRY);
-      isPressing = false;
-      delay(500);
     }
-  }
-  else
-  {
-    setFlashingForState(calibState);
-
-    // Detect long press to cancel calibration
-    if (currentState == LOW && lastButtonState == HIGH)
-    {
-      buttonPressTime = millis();
-      isPressing = true;
-    }
-    else if (currentState == HIGH && lastButtonState == LOW)
-    {
-      isPressing = false;
-    }
-    if (isPressing && millis() - buttonPressTime > 2000)
+    else
     {
       Serial.println("Calibration cancelled.");
       calibState = IDLE;
       setFlashingForState(IDLE);
-      flashLed(10, 50); // Rapid flash for cancellation
-      isPressing = false;
-      delay(500);
+      flashLed(10, 50);
     }
-    // Short press to advance calibration steps
-    else if (currentState == LOW && lastButtonState == HIGH && !isPressing)
-    {
-      switch (calibState)
-      {
-      case WAIT_DRY:
-        dryValue = analogRead(SOIL_SENSOR_PIN);
-        Serial.print("Dry value set: ");
-        Serial.println(dryValue);
-        Serial.println("Now place sensor in WATER and press button.");
-        calibState = WAIT_WET;
-        setFlashingForState(WAIT_WET);
-        break;
-      case WAIT_WET:
-        wetValue = analogRead(SOIL_SENSOR_PIN);
-        Serial.print("Wet value set: ");
-        Serial.println(wetValue);
-        Serial.println("Press button again to send calibration.");
-        calibState = WAIT_SEND;
-        setFlashingForState(WAIT_SEND);
-        break;
-      case WAIT_SEND:
-        sendCalibration(deviceMac, dryValue, wetValue, SERVER_URL);
-        calibState = IDLE;
-        setFlashingForState(IDLE);
-        Serial.println("Calibration complete!");
-        break;
-      default:
-        break;
-      }
-    }
-    isPressing = false;
+    return; // Stop processing this loop to prevent double actions
   }
 
-  // --- Send soil reading every 30 seconds ---
-  if (calibState == IDLE && millis() - lastReadingSent > readingInterval)
+  // CALIBRATION: Advance Steps (Short Press)
+  if (buttonShortPress && calibState != IDLE)
+  {
+    switch (calibState)
+    {
+    case WAIT_DRY:
+      dryValue = analogRead(SOIL_SENSOR_PIN);
+      Serial.printf("Dry value set: %d\n", dryValue);
+      Serial.println("Place in WATER and press button.");
+      calibState = WAIT_WET;
+      setFlashingForState(WAIT_WET);
+      break;
+
+    case WAIT_WET:
+      wetValue = analogRead(SOIL_SENSOR_PIN);
+      Serial.printf("Wet value set: %d\n", wetValue);
+      Serial.println("Press button to send.");
+      calibState = WAIT_SEND;
+      setFlashingForState(WAIT_SEND);
+      break;
+
+    case WAIT_SEND:
+      sendCalibration(deviceMac, dryValue, wetValue, SERVER_URL);
+      calibState = IDLE;
+      setFlashingForState(IDLE);
+      Serial.println("Calibration complete!");
+      lastReadingSent = currentTime; // Reset reading timer
+      break;
+
+    default:
+      break;
+    }
+  }
+
+  // --- 3. Background Tasks ---
+  updateLedFlashing();
+
+  // Send telemetry only if IDLE
+  if (calibState == IDLE && (currentTime - lastReadingSent > readingInterval))
   {
     sendTelemetry(deviceMac, dryValue, wetValue, SERVER_URL, SOIL_SENSOR_PIN);
-    lastReadingSent = millis();
+    lastReadingSent = currentTime;
   }
-
-  lastButtonState = currentState;
-  updateLedFlashing();
 }
