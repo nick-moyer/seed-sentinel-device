@@ -1,21 +1,13 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 
 #include "led.h"
 #include "calibration.h"
 #include "telemetry.h"
-
-// --- MACROS (Injected from secrets.ini) ---
-#ifndef WIFI_SSID
-#define WIFI_SSID "DEFAULT"
-#endif
-#ifndef WIFI_PASS
-#define WIFI_PASS "DEFAULT"
-#endif
-#ifndef SERVER_URL
-#define SERVER_URL "http://localhost:8080"
-#endif
 
 // --- CONFIG ---
 const int BUTTON_PIN = 0;
@@ -33,6 +25,13 @@ int wetValue = 0;
 
 String deviceMac;
 
+// --- WiFi & Config State ---
+Preferences preferences;
+WebServer server(80);
+DNSServer dnsServer;
+bool isProvisioning = false;
+String configUrl; // Holds the dynamic server URL
+
 // --- Button State ---
 int lastButtonState = HIGH;
 unsigned long buttonPressTime = 0;
@@ -46,30 +45,108 @@ unsigned long lastDebounceTime = 0;
 unsigned long lastReadingSent = 0;
 const unsigned long readingInterval = 30000; // 30 seconds
 
+// --- Provisioning HTML ---
+const char *htmlForm = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head><title>Seed Sentinel Setup</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body><h2>Seed Sentinel Setup</h2>
+<form action="/save" method="POST">
+  <label>WiFi SSID:</label><br><input type="text" name="ssid"><br>
+  <label>WiFi Password:</label><br><input type="password" name="pass"><br>
+  <label>Server URL (e.g. http://192.168.0.100:8080):</label><br><input type="text" name="url" value="http://192.168.0.100:8080"><br><br>
+  <input type="submit" value="Save & Connect">
+</form></body></html>)rawliteral";
+
+void startProvisioning()
+{
+  isProvisioning = true;
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("Seed_Sentinel_Setup");
+  dnsServer.start(53, "*", WiFi.softAPIP());
+  flashInterval = 100; // Rapid flash for AP mode
+
+  server.on("/", []() { server.send(200, "text/html", htmlForm); });
+  server.on("/save", []() {
+    String ssid = server.arg("ssid");
+    String pass = server.arg("pass");
+    String url = server.arg("url");
+    if (ssid.length() > 0)
+    {
+      preferences.begin("sentinel", false);
+      preferences.putString("ssid", ssid);
+      preferences.putString("pass", pass);
+      preferences.putString("url", url);
+      preferences.end();
+      server.send(200, "text/html", "Saved! Restarting...");
+      delay(1000);
+      ESP.restart();
+    }
+    else
+    {
+      server.send(200, "text/html", "Error: SSID missing. <a href='/'>Back</a>");
+    }
+  });
+  server.begin();
+  Serial.println("Provisioning Mode Started. Connect to 'Seed_Sentinel_Setup'");
+}
+
 // --- Setup ---
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(9600);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   setLed(LOW);
 
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED)
+  // Load Settings
+  preferences.begin("sentinel", true);
+  String ssid = preferences.getString("ssid", "");
+  String pass = preferences.getString("pass", "");
+  configUrl = preferences.getString("url", "");
+  preferences.end();
+
+  if (ssid == "")
   {
-    delay(500);
-    Serial.print(".");
+    startProvisioning();
   }
-  Serial.println("\nWiFi Connected");
-  deviceMac = WiFi.macAddress();
-  Serial.print("My MAC Address: ");
-  Serial.println(deviceMac);
+  else
+  {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    Serial.print("Connecting to WiFi");
+    int retries = 0;
+    while (WiFi.status() != WL_CONNECTED && retries < 20)
+    {
+      delay(500);
+      Serial.print(".");
+      retries++;
+    }
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      Serial.println("\nConnected!");
+      Serial.print("IP: ");
+      Serial.println(WiFi.localIP());
+      deviceMac = WiFi.macAddress();
+    }
+    else
+    {
+      Serial.println("\nFailed to connect. Starting Provisioning Mode.");
+      startProvisioning();
+    }
+  }
 }
 
 // --- Main Loop ---
 void loop()
 {
+  if (isProvisioning)
+  {
+    dnsServer.processNextRequest();
+    server.handleClient();
+    updateLedFlashing();
+    return;
+  }
+
   unsigned long currentTime = millis();
   int reading = digitalRead(BUTTON_PIN);
 
@@ -159,7 +236,14 @@ void loop()
       break;
 
     case WAIT_SEND:
-      sendCalibration(deviceMac, dryValue, wetValue, SERVER_URL);
+      sendCalibration(deviceMac, dryValue, wetValue, configUrl.c_str());
+
+      // Save calibration to persistent storage
+      preferences.begin("sentinel", false);
+      preferences.putInt("dry", dryValue);
+      preferences.putInt("wet", wetValue);
+      preferences.end();
+
       calibState = IDLE;
       setFlashingForState(IDLE);
       Serial.println("Calibration complete!");
@@ -177,7 +261,7 @@ void loop()
   // Send telemetry only if IDLE
   if (calibState == IDLE && (currentTime - lastReadingSent > readingInterval))
   {
-    sendTelemetry(deviceMac, dryValue, wetValue, SERVER_URL, SOIL_SENSOR_PIN);
+    sendTelemetry(deviceMac, dryValue, wetValue, configUrl.c_str(), SOIL_SENSOR_PIN);
     lastReadingSent = currentTime;
   }
 }

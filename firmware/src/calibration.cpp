@@ -9,7 +9,7 @@ void sendCalibration(const String &deviceMac, int dryValue, int wetValue, const 
 {
     setLed(HIGH); // LED on while sending
     bool success = false;
-    if (WiFi.status() == WL_CONNECTED)
+    if (WiFi.status() == WL_CONNECTED || WiFi.getMode() == WIFI_AP)
     {
         HTTPClient http;
         String url = String(serverUrl) + "/calibrate";

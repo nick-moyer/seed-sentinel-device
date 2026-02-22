@@ -10,10 +10,10 @@ void sendTelemetry(const String &deviceMac, int dryValue, int wetValue, const ch
     setLed(HIGH); // LED on while sending
     int soilValue = analogRead(SOIL_SENSOR_PIN);
     bool success = false;
-    if (WiFi.status() == WL_CONNECTED)
+    if (WiFi.status() == WL_CONNECTED || WiFi.getMode() == WIFI_AP)
     {
         HTTPClient http;
-        String url = String(SERVER_URL) + "/telemetry";
+        String url = String(serverUrl) + "/telemetry";
         http.begin(url);
         http.addHeader("Content-Type", "application/json");
         String json = "{\"sensor_id\": \"" + deviceMac + "\", \"raw_value\": " + String(soilValue) + "}";

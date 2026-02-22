@@ -48,25 +48,16 @@ To build one node, you need the following components (~$10 USD total):
 
 This project uses **PlatformIO** (VS Code Extension). Do not use the standard Arduino IDE.
 
-### 1. Configuration (Secrets)
-We use a `secrets.ini` file to keep WiFi credentials out of Git.
-
-1.  Navigate to the `firmware/` directory.
-2.  Create a file named `secrets.ini`.
-3.  Add your network details:
-
-```ini
-[secrets]
-; Your WiFi Credentials
-wifi_ssid = YOUR_SSID_HERE
-wifi_pass = YOUR_PASSWORD_HERE
-
-; Your Computer's IP Address (Where Go is running)
-server_ip = http://YOUR_SERVER_IP:8080
-```
-
-### 2. Flashing the Device
-1. Open the firmware/ folder in VS Code.
+### 1. Flashing the Device
+1. Open the `firmware/` folder in VS Code.
 2. Connect the ESP32 via USB.
 3. Click the PlatformIO Upload (→) arrow in the bottom status bar.
   - Note: If it fails to connect, hold the BOOT button on the ESP32 while it says "Connecting...".
+
+### 2. Configuration (WiFi Setup)
+Once flashed, the device needs to be connected to your network:
+
+1.  **Connect to Hotspot:** On your phone or computer, connect to the WiFi network named **`Seed_Sentinel_Setup`**.
+2.  **Open Portal:** A configuration page should open automatically. If not, visit `http://192.168.4.1` in your browser.
+3.  **Enter Details:** Input your WiFi SSID, Password, and the Server URL (e.g., `http://192.168.0.100:8080`).
+4.  **Save:** Click "Save & Connect". The device will restart and connect to your network.
